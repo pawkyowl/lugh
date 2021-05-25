@@ -9,17 +9,21 @@ import (
 	"gopkg.in/yaml.v2"
 	"image"
 	"image/png"
+	"image/jpeg"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
+	"net/http"
+	"regexp"
 )
 
 const (
 	fileFormat    = ".mp3"
-	pictureFormat = "image/png"
+	pngFormat = "image/png"
+	jpegFormat = "image/jpeg"
 )
 
 func scanFolder(root string) ([]string, error) {
@@ -43,11 +47,26 @@ func getPicture(arr []byte) (image.Image, error) {
 	if len(values) != 3 || len(values[1]) == 0 {
 		return nil, errors.New("incorrect tag")
 	}
-	if values[0] != pictureFormat {
-		log.Println("Warning: picture format must be " + pictureFormat)
+	if values[0] != pngFormat {
+		log.Println("Warning: picture format must be " + pngFormat+" but it is "+values[0])
 	}
 	data := []byte(values[2])
-	return png.Decode(bytes.NewReader(data))
+	contentType := http.DetectContentType(data)
+	switch contentType {
+	case "image/png":
+		return png.Decode(bytes.NewReader(data))
+	case "image/jpeg":
+		img, err := jpeg.Decode(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		buf := new(bytes.Buffer)
+		if err := png.Encode(buf, img); err != nil {
+			return nil, err
+		}
+		return png.Decode(bytes.NewReader(buf.Bytes()))
+	}
+	return nil, errors.New("unable to extract picture")
 }
 
 func getString(arr []byte) string {
@@ -73,7 +92,7 @@ func getPictureString(picture image.Image) string {
 	if err != nil {
 		return ""
 	}
-	result := []byte(pictureFormat)
+	result := []byte(pngFormat)
 	result = append(result, 0x00)
 	result = append(result, 2)
 	result = append(result, []byte("")...)
@@ -85,7 +104,8 @@ func getPictureString(picture image.Image) string {
 func formatString(str string) string {
 	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
 	res, _, _ := transform.String(t, str)
-	return strings.ReplaceAll(strings.Title(strings.ToLower(res)), "\"", "")
+	reg, _ := regexp.Compile("[^a-zA-Z0-9\\s]+")
+	return strings.Title(strings.TrimSpace(reg.ReplaceAllString(strings.ToLower(res), "")))
 }
 
 func loadConfig(path string) (map[string]*Album, error) {

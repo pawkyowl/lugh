@@ -257,7 +257,11 @@ func (track *Track) Save() error {
 	if err != nil {
 		return err
 	}
-	return nil
+	if track.File != track.Filename {
+		return os.Remove(filepath.Join(track.album.Path, track.File))
+	} else {
+		return nil
+	}
 }
 
 func Scan(dir string) *Collection {
