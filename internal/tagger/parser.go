@@ -121,13 +121,18 @@ func (album *Album) Copy(newAlbum *Album) {
 }
 
 func (album *Album) SavePicture() error {
-	return savePicture(album.Cover, album.picture)
+	if album.picture != nil {
+		return savePicture(album.Cover, album.picture)
+	} else {
+		return nil
+	}
 }
 
 type Track struct {
 	album    *Album
 	folder   string
 	dir      string
+	tags     map[string][]byte
 	data     []byte
 	File     string
 	Filename string
@@ -151,9 +156,9 @@ func (track *Track) setNewFilename() {
 	}
 }
 
-func (track *Track) setMetadata(tags map[string][]byte) {
-	for key := range tags {
-		valueBytes := tags[key]
+func (track *Track) setMetadata() {
+	for key := range track.tags {
+		valueBytes := track.tags[key]
 		if key == "TPE1" {
 			track.album.Artist = getString(valueBytes)
 		} else if key == "TALB" {
@@ -189,6 +194,15 @@ func (track *Track) setMetadata(tags map[string][]byte) {
 					log.Println(err)
 				}
 			}
+		} else if key == "APIC" {
+			picture, err := getPicture(valueBytes)
+			if err == nil {
+				track.album.picture = picture
+			} else {
+				log.Printf("Error reading picture: %s", err)
+			}
+		} else {
+			log.Println("Unkown tag " + key)			
 		}
 	}
 }
@@ -208,16 +222,18 @@ func (track *Track) Save() error {
 	copy(headerByte[0:3], "ID3")
 	copy(headerByte[3:6], []byte{4, 0, 0})
 	length := 0
-	tags := map[string][]byte{
-		"TPE1": getBytes(track.album.Artist),
-		"TALB": getBytes(track.album.Album),
-		"TDOR": getBytes(strconv.Itoa(track.album.Year)),
-		"TCON": getBytes(track.album.Genre),
-		"TIT2": getBytes(track.Title),
-		"TRCK": getBytes(strconv.Itoa(track.Track)),
-		"APIC": getBytes(getPictureString(track.album.picture)),
+	for key := range track.tags {
+		switch key {
+		case "TPE1": track.tags[key] = getBytes(track.album.Artist)
+		case "TALB": track.tags[key] = getBytes(track.album.Album)
+		case "TDOR": track.tags[key] = getBytes(strconv.Itoa(track.album.Year))
+		case "TCON": track.tags[key] = getBytes(track.album.Genre)
+		case "TIT2": track.tags[key] = getBytes(track.Title)
+		case "TRCK": track.tags[key] = getBytes(strconv.Itoa(track.Track))
+		case "APIC": track.tags[key] = getBytes(getPictureString(track.album.picture))
+		}
 	}
-	for _, val := range tags {
+	for _, val := range track.tags {
 		length += 10 + len(val)
 	}
 	lengthByte := []byte{
@@ -234,7 +250,7 @@ func (track *Track) Save() error {
 	if n != 10 {
 		return errors.New("Save track error")
 	}
-	for key, value := range tags {
+	for key, value := range track.tags {
 		header := make([]byte, 10)
 		for i, val := range key {
 			header[i] = byte(val)
@@ -315,7 +331,7 @@ func parseFile(path string) (*Track, error) {
 	for _, x := range header[6:10] {
 		length = (length << 7) | int(x)
 	}
-	tags := make(map[string][]byte)
+	track.tags = make(map[string][]byte)
 	cursor := 0
 	for cursor < length {
 		val := make([]byte, 10)
@@ -336,30 +352,10 @@ func parseFile(path string) (*Track, error) {
 		if err != nil {
 			return nil, err
 		}
-		switch key {
-		case
-			"TPE1",
-			"TALB",
-			"TDOR",
-			"TCON",
-			"TIT2",
-			"TRCK":
-			tags[key] = valueBytes
-		case
-			"APIC":
-			picture, err := getPicture(valueBytes)
-			if err == nil {
-				track.album.picture = picture
-			} else {
-				log.Printf("Error reading picture: %s", err)
-			}
-			tags[key] = valueBytes
-		default:
-			log.Println("Unkown tag " + key)
-		}
+		track.tags[key] = valueBytes
 		cursor += 10 + size
 	}
-	track.setMetadata(tags)
+	track.setMetadata()
 	track.setNewFilename()
 	track.data, err = ioutil.ReadAll(reader)
 	if err != nil {
