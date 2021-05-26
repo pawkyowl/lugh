@@ -108,21 +108,21 @@ func formatString(str string) string {
 	return strings.Title(strings.TrimSpace(reg.ReplaceAllString(strings.ToLower(res), "")))
 }
 
-func loadConfig(path string) (map[string]*Album, error) {
-	albums := make(map[string]*Album)
+func loadConfig(path string) (*MetaCollection, error) {
+	config := &MetaCollection{}
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	err = yaml.Unmarshal(data, &albums)
+	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
 	}
-	return albums, nil
+	return config, nil
 }
 
-func saveConfig(path string, albums map[string]*Album) error {
-	data, err := yaml.Marshal(&albums)
+func saveConfig(path string, obj interface{}) error {
+	data, err := yaml.Marshal(&obj)
 	if err != nil {
 		return err
 	}

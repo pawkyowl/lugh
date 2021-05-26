@@ -10,22 +10,100 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	"strings"
+	"crypto/sha256"
+	"encoding/hex"
 )
 
 type Collection struct {
 	albums map[string]*Album
 }
 
+type InfosAlbum struct {
+	Path    string
+	Cover   string
+	Tracks  []*InfosTrack
+}
+
+type InfosTrack struct {
+	Id       string
+	File     string
+}
+
+type MetaAlbum struct {
+	Album   string `json:"album"`
+	Artist  string `json:"artist"`
+	Year    int    `json:"year"`
+	Genre   string `json:"genre"`
+	Tracks  map[string]string
+}
+
+type MetaCollection struct {
+	Metadata map[string]*MetaAlbum `json:"metadata"`
+	Infos map[string]*InfosAlbum `json:"infos"`
+}
+
 func LoadCollection(path string) (*Collection, error) {
-	albums, err := loadConfig(path)
+	config, err := loadConfig(path)
 	if err != nil {
 		return nil, err
+	}
+	albums := make(map[string]*Album)
+	for key := range config.Infos {
+		log.Println(key)
+		album := config.Infos[key]
+		meta := config.Metadata[key]
+		albums[key] = &Album{
+			Path:    album.Path,
+			Cover:   album.Cover,
+			Album:   meta.Album,
+			Artist:  meta.Artist,
+			Year:    meta.Year,
+			Genre:   meta.Genre,
+			Tracks:   make([]*Track, len(album.Tracks)),
+		}
+		for i, track := range(album.Tracks) {
+			tab := strings.Split(meta.Tracks[track.Id], "=")
+			if len(tab) != 2 {
+				return nil, errors.New("Track name error")
+			}
+			num, err := strconv.Atoi(strings.TrimSpace(tab[0]))
+			if err != nil {
+				return nil, err
+			}
+			albums[key].Tracks[i] = &Track{
+				Id: track.Id,
+				File: track.File,
+				Track: num,
+				Title: tab[1],
+			}
+		}
 	}
 	return &Collection{albums: albums}, nil
 }
 
 func (collection *Collection) Save(path string) error {
-	return saveConfig(path, collection.albums)
+	infos := make(map[string]*InfosAlbum)
+	metadata := make(map[string]*MetaAlbum)
+	for key := range collection.albums {
+		infos[key] = &InfosAlbum{
+			Path:    collection.albums[key].Path,
+			Cover:   collection.albums[key].Cover,
+			Tracks:   make([]*InfosTrack, len(collection.albums[key].Tracks)),
+		}
+		metadata[key] = &MetaAlbum{
+			Album:    collection.albums[key].Album,
+			Artist:   collection.albums[key].Artist,
+			Year:   collection.albums[key].Year,
+			Genre:   collection.albums[key].Genre,
+			Tracks:   make(map[string]string),
+		}
+		for i, track := range(collection.albums[key].Tracks) {
+			infos[key].Tracks[i] = &InfosTrack{Id: track.Id, File: track.File}
+			metadata[key].Tracks[track.Id] = strconv.Itoa(track.Track)+" = "+track.Title
+		}
+	}
+	return saveConfig(path, &MetaCollection{Metadata: metadata, Infos: infos})
 }
 
 func (collection *Collection) Albums() []string {
@@ -134,6 +212,7 @@ type Track struct {
 	dir      string
 	tags     map[string][]byte
 	data     []byte
+	Id       string
 	File     string
 	Filename string
 	Track    int    `json:"track"`
@@ -141,11 +220,13 @@ type Track struct {
 }
 
 func NewTrack(filename string, path string) *Track {
+	h := sha256.Sum256([]byte(filename))
+	id := hex.EncodeToString(h[:4])
 	dir := filepath.Dir(path)
 	parent := filepath.Base(dir)
 	album := formatString(parent)
 	cover := filepath.Join(dir, album+".png")
-	return &Track{File: filename, folder: album, dir: dir, album: &Album{Path: path, Cover: cover, Album: album}}
+	return &Track{Id: id, File: filename, folder: album, dir: dir, album: &Album{Path: path, Cover: cover, Album: album}}
 }
 
 func (track *Track) setNewFilename() {
